@@ -46,15 +46,15 @@ source venv/bin/activate
 Pre-converted models:
 ```bash
 source venv/bin/activate
-python3 litert-lm-cli run litert-community/Qwen3-0.6B
-python3 litert-lm-cli run litert-community/gemma-3-270m-it
+./litert-lm-cli run litert-community/Qwen3-0.6B
+./litert-lm-cli run litert-community/gemma-3-270m-it
 ```
 
 Auto-conversion (downloads and converts from HuggingFace on first run):
 ```bash
 source venv/bin/activate
-python3 litert-lm-cli run Qwen/Qwen3-0.6B
-python3 litert-lm-cli run google/gemma-3-270m-it  # Requires HF_TOKEN
+./litert-lm-cli run Qwen/Qwen3-0.6B
+./litert-lm-cli run google/gemma-3-270m-it  # Requires HF_TOKEN
 ```
 
 This will:
@@ -69,8 +69,8 @@ This will:
 Explicitly convert a model before running:
 ```bash
 source venv/bin/activate
-python3 litert-lm-cli convert google/gemma-3-270m-it
-python3 litert-lm-cli convert Qwen/Qwen3-0.6B
+./litert-lm-cli convert google/gemma-3-270m-it
+./litert-lm-cli convert Qwen/Qwen3-0.6B
 ```
 
 ## Directory Structure
