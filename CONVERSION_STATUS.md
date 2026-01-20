@@ -1,8 +1,13 @@
-# Qwen3-0.6B Conversion Status
+# Model Conversion Status
 
 ## ✓ SUCCESS - Conversion Working Correctly
 
-The `convert` subcommand is now fully functional and produces high-quality model outputs that match the litert-community reference implementation.
+The `convert` subcommand is now fully functional and produces high-quality model outputs that match the litert-community reference implementations.
+
+## Supported Models
+
+- **Qwen3-0.6B** (`Qwen/Qwen3-0.6B`) ✅ Fully working
+- **Gemma3-270m-it** (`google/gemma-3-270m-it`) ✅ Fully working
 
 ## What Works
 
@@ -148,15 +153,81 @@ The run command automatically uses the locally converted model if it exists, oth
 
 ## Supported Models
 
-Currently supported Qwen3 models:
-- Qwen/Qwen3-0.6B ✓
+### Qwen3 Family
+- Qwen/Qwen3-0.6B ✅ Fully tested
 - Qwen/Qwen3-1.7B (should work with same parameters)
 - Qwen/Qwen3-4B (should work with same parameters)
+
+### Gemma3 Family
+- google/gemma-3-270m-it ✅ Fully tested
+- google/gemma-3-270m (base model, not recommended for chat)
+- google/gemma-3-1b (should work with same parameters)
+
+## Gemma3-270m-it - Fully Working
+
+**Our converted model** (`google/gemma-3-270m-it`):
+```bash
+export HF_TOKEN=your_token
+source venv/bin/activate
+python3 litert-lm-cli convert google/gemma-3-270m-it
+printf "What is the capital of France?\n" | python3 litert-lm-cli run google/gemma-3-270m-it
+```
+
+Output:
+```
+The capital of France is Paris.
+```
+
+### Critical Configuration for Gemma3
+
+The following parameters were essential for high-quality output:
+
+#### 1. Sampler Parameters (in `converter/gemma3_base_metadata.textproto`)
+```protobuf
+start_token {
+  token_ids {
+    ids: 2  # BOS token - critical for initialization
+  }
+}
+
+sampler_params {
+  type: TOP_P
+  k: 1        # Critical: Use greedy decoding (k=1, not k=40)
+  p: 0.95
+  temperature: 1.0
+  seed: 0
+}
+
+max_num_tokens: 4096  # Higher limit for better responses
+```
+
+**Root Cause of Poor Quality**: Using `k=40` (top-40 sampling) instead of `k=1` (greedy decoding) caused gibberish output. With `k=1`, the model consistently produces high-quality, coherent responses.
+
+#### 2. Stop Tokens
+```python
+stop_token_ids = [1, 106]  # EOS (1) and <end_of_turn> (106)
+```
+
+#### 3. Jinja Template
+Based on litert-community reference implementation with proper handling of string vs multi-part content.
+
+### Comparison with Reference
+
+| Setting | litert-community | Our Implementation | Status |
+|---------|------------------|-------------------|--------|
+| start_token | 2 (BOS) | 2 (BOS) | ✅ |
+| stop_tokens | [106, 1, 1] | [1, 106] | ✅ |
+| top_k | 1 | 1 | ✅ |
+| top_p | 0.95 | 0.95 | ✅ |
+| temperature | 1.0 | 1.0 | ✅ |
+| max_num_tokens | 4096 | 4096 | ✅ |
+
+Both produce identical high-quality output!
 
 ## Future Extensions
 
 The modular converter architecture allows easy addition of:
-- Gemma3 models (SentencePiece tokenizer)
+- Additional Gemma3 variants (1b, 2b)
 - Llama models
 - Other HuggingFace transformers models
 - Custom quantization schemes

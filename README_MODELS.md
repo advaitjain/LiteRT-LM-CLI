@@ -7,7 +7,7 @@ This CLI supports multiple model families for both running pre-converted models 
 | Model Family | Pre-converted | Convert from HF | Tokenizer | Auth Required |
 |--------------|---------------|-----------------|-----------|---------------|
 | **Qwen3** | litert-community/Qwen3-0.6B | Qwen/Qwen3-{0.6B,1.7B,4B} | HuggingFace BPE | No |
-| **Gemma3** | litert-community/gemma-3-270m-it | google/gemma-3-{270m,1b} | SentencePiece | Yes (HF_TOKEN) |
+| **Gemma3** | litert-community/gemma-3-270m-it | google/gemma-3-{270m,270m-it,1b} | SentencePiece | Yes (HF_TOKEN) |
 
 ## Qwen3 Models
 
@@ -42,17 +42,22 @@ export HF_TOKEN=your_token
 ### Convert from HuggingFace
 ```bash
 export HF_TOKEN=your_token
-./litert-lm-cli convert google/gemma-3-270m
-./litert-lm-cli convert google/gemma-3-1b
+source venv/bin/activate
+python3 litert-lm-cli convert google/gemma-3-270m-it  # ✅ Instruction-tuned (recommended for chat)
+python3 litert-lm-cli convert google/gemma-3-270m     # Base model (for completion tasks)
+python3 litert-lm-cli convert google/gemma-3-1b
 ```
 
 ### Technical Details
 - **Tokenizer**: SentencePiece (tokenizer.model)
-- **Stop token**: 1 (EOS)
+- **Start token**: 2 (BOS)
+- **Stop tokens**: 1 (EOS), 106 (`<end_of_turn>`)
 - **Prompt format**: `<start_of_turn>role\n...content...<end_of_turn>\n`
 - **Temperature**: 1.0
-- **Top-k**: 40
-- **Documentation**: See [GEMMA3_SUPPORT.md](GEMMA3_SUPPORT.md)
+- **Top-k**: 1 (greedy decoding for best quality)
+- **Top-p**: 0.95
+- **Max tokens**: 4096
+- **Documentation**: See [CONVERSION_STATUS.md](CONVERSION_STATUS.md)
 
 ### Authentication
 Gemma3 models are gated. You need to:
@@ -83,12 +88,13 @@ Gemma3 models are gated. You need to:
 
 ## Model Sizes
 
-| Model | Parameters | Output File Size |
-|-------|-----------|------------------|
-| Qwen3-0.6B | 600M | ~619 MB |
-| Qwen3-1.7B | 1.7B | ~1.7 GB |
-| Qwen3-4B | 4B | ~4 GB |
-| Gemma3-270m | 270M | ~270 MB (estimated) |
+| Model | Parameters | Output File Size (dynamic_int8) |
+|-------|-----------|----------------------------------|
+| Qwen3-0.6B | 600M | 619 MB |
+| Qwen3-1.7B | 1.7B | ~1.7 GB (estimated) |
+| Qwen3-4B | 4B | ~4 GB (estimated) |
+| Gemma3-270m-it | 270M | 299 MB |
+| Gemma3-270m | 270M | 299 MB |
 | Gemma3-1b | 1B | ~1 GB (estimated) |
 
 ## File Locations
@@ -98,12 +104,15 @@ After conversion, models are saved to:
 models/
 ├── Qwen/
 │   └── Qwen3-0.6B/
-│       ├── checkpoint/        # Downloaded HF files
+│       ├── checkpoint/           # Downloaded HF files
 │       └── Qwen3-0.6B.litertlm
 ├── google/
-│   └── gemma-3-270m/
-│       ├── checkpoint/        # Downloaded HF files
-│       └── gemma-3-270m.litertlm
+│   ├── gemma-3-270m/
+│   │   ├── checkpoint/           # Downloaded HF files
+│   │   └── gemma-3-270m.litertlm
+│   └── gemma-3-270m-it/
+│       ├── checkpoint/           # Downloaded HF files
+│       └── gemma-3-270m-it.litertlm
 └── litert-community/
     ├── Qwen3-0.6B/
     │   └── Qwen3-0.6B.litertlm
@@ -160,6 +169,6 @@ See [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) for details.
 
 ## Further Documentation
 
-- **Qwen3**: [CONVERSION_STATUS.md](CONVERSION_STATUS.md)
-- **Gemma3**: [GEMMA3_SUPPORT.md](GEMMA3_SUPPORT.md)
-- **Implementation**: [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)
+- **Model Conversion**: [CONVERSION_STATUS.md](CONVERSION_STATUS.md) - Covers both Qwen3 and Gemma3
+- **Implementation Details**: [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)
+- **Auto-conversion**: [AUTO_CONVERSION.md](AUTO_CONVERSION.md)

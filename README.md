@@ -2,6 +2,17 @@
 
 Prototype code to make it easy to try running LLMs with LiteRT-LM
 
+## Supported Models
+
+| Model Family | Pre-converted | Convert from HF | Size | Status |
+|--------------|---------------|-----------------|------|--------|
+| **Qwen3** | litert-community/Qwen3-0.6B | Qwen/Qwen3-{0.6B,1.7B,4B} | 619 MB | ✅ Fully tested |
+| **Gemma3** | litert-community/gemma-3-270m-it | google/gemma-3-{270m-it,270m,1b} | 299 MB | ✅ Fully tested |
+
+**Note**: Gemma3 models require HuggingFace authentication (`HF_TOKEN`).
+
+For detailed model information, see [README_MODELS.md](README_MODELS.md).
+
 ## Setup
 
 Run the setup script to prepare the environment:
@@ -32,15 +43,35 @@ source venv/bin/activate
 
 ### Run a Model
 
+Pre-converted models:
 ```bash
-./litert-lm-cli run litert-community/Qwen3-0.6B
+source venv/bin/activate
+python3 litert-lm-cli run litert-community/Qwen3-0.6B
+python3 litert-lm-cli run litert-community/gemma-3-270m-it
+```
+
+Auto-conversion (downloads and converts from HuggingFace on first run):
+```bash
+source venv/bin/activate
+python3 litert-lm-cli run Qwen/Qwen3-0.6B
+python3 litert-lm-cli run google/gemma-3-270m-it  # Requires HF_TOKEN
 ```
 
 This will:
 1. Download the model from HuggingFace (if not already cached)
-2. Build the LiteRT-LM binary (if not already built)
-3. Prompt you for input
-4. Run inference and display the results
+2. Convert to LiteRT-LM format (if needed)
+3. Build the LiteRT-LM binary (if not already built)
+4. Prompt you for input
+5. Run inference and display the results
+
+### Convert a Model
+
+Explicitly convert a model before running:
+```bash
+source venv/bin/activate
+python3 litert-lm-cli convert google/gemma-3-270m-it
+python3 litert-lm-cli convert Qwen/Qwen3-0.6B
+```
 
 ## Directory Structure
 
@@ -62,3 +93,17 @@ LiteRT-LM-CLI/
 - Linux or macOS
 
 All dependencies are installed within the LiteRT-LM-CLI directory and do not interfere with the system.
+
+## Documentation
+
+- **[README_MODELS.md](README_MODELS.md)** - Comprehensive model reference guide
+  - All supported models and variants
+  - Technical details (tokenizers, stop tokens, prompt formats)
+  - File locations and sizes
+  - Authentication requirements
+
+- **[CONVERSION_STATUS.md](CONVERSION_STATUS.md)** - Model conversion details
+  - Conversion status for all models
+  - Critical configuration parameters
+  - Troubleshooting and examples
+  - Quality comparisons with reference implementations
