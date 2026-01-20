@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+
+class LiteRTLMCLI:
+    def __init__(self):
+        self.script_dir = Path(__file__).parent.resolve()
+        self.models_dir = self.script_dir / "models"
+        self.litert_lm_dir = self.script_dir / "LiteRT-LM"
+        self.bazelisk = self.script_dir / "bazelisk"
+
+    def download_model(self, model_name):
+        """Download model from HuggingFace if not already present."""
+        model_path = self.models_dir / model_name
+
+        # Handle special filename mappings for certain models
+        if model_name == "litert-community/gemma-3-270m-it":
+            model_filename = "gemma3-270m-it-q8.litertlm"
+        else:
+            model_filename = f"{model_name.split('/')[-1]}.litertlm"
+
+        model_file = model_path / model_filename
+
+        if model_file.exists():
+            print(f"✓ Model already exists at {model_file}")
+            return model_file
+
+        # Create model directory
+        model_path.mkdir(parents=True, exist_ok=True)
+
+        # Construct HuggingFace URL
+        hf_url = f"https://huggingface.co/{model_name}/resolve/main/{model_filename}"
+
+        print(f"Downloading model from {hf_url}...")
+        print(f"Saving to {model_file}...")
+
+        try:
+            # Check for HF_TOKEN environment variable for gated models
+            hf_token = os.environ.get('HF_TOKEN')
+
+            # Fallback to reading token from huggingface-cli cache
+            if not hf_token:
+                token_path = Path.home() / '.cache' / 'huggingface' / 'token'
+                if token_path.exists():
+                    hf_token = token_path.read_text().strip()
+                    print("Using HuggingFace token from ~/.cache/huggingface/token")
+
+            # Download with progress
+            def progress_hook(block_num, block_size, total_size):
+                if total_size > 0:
+                    percent = min(100, block_num * block_size * 100 / total_size)
+                    sys.stdout.write(f"\rProgress: {percent:.1f}%")
+                    sys.stdout.flush()
+
+            # Add authentication header if token is available
+            if hf_token:
+                request = urllib.request.Request(hf_url)
+                request.add_header('Authorization', f'Bearer {hf_token}')
+                print("Using HF_TOKEN for authentication")
+
+                # For authenticated downloads, we need to handle it differently
+                with urllib.request.urlopen(request) as response:
+                    total_size = int(response.headers.get('Content-Length', 0))
+                    block_size = 8192
+                    downloaded = 0
+
+                    with open(model_file, 'wb') as f:
+                        while True:
+                            buffer = response.read(block_size)
+                            if not buffer:
+                                break
+                            downloaded += len(buffer)
+                            f.write(buffer)
+                            if total_size > 0:
+                                percent = min(100, downloaded * 100 / total_size)
+                                sys.stdout.write(f"\rProgress: {percent:.1f}%")
+                                sys.stdout.flush()
+            else:
+                urllib.request.urlretrieve(hf_url, model_file, reporthook=progress_hook)
+
+            print("\n✓ Model downloaded successfully")
+            return model_file
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                print(f"\n✗ Error: Unauthorized (401). This model requires authentication.")
+                print("\nPlease authenticate with HuggingFace:")
+                print("  1. Run: huggingface-cli login")
+                print("  2. Enter your HuggingFace token (get it from https://huggingface.co/settings/tokens)")
+                print("\nIf you've already logged in, your token should be automatically detected.")
+                print("Alternatively, set the environment variable:")
+                print("  export HF_TOKEN=$(cat ~/.cache/huggingface/token)")
+                print(f"\nFor gated models like {model_name}, you may also need to:")
+                print(f"  - Visit https://huggingface.co/{model_name}")
+                print("  - Click 'Agree and access repository'")
+                print("  - Wait a few minutes for access to be granted")
+            else:
+                print(f"\n✗ HTTP Error downloading model: {e}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"\n✗ Error downloading model: {e}")
+            sys.exit(1)
+
+    def build_litert_lm(self):
+        """Build the LiteRT-LM binary using Bazel."""
+        if not self.litert_lm_dir.exists():
+            print("✗ Error: LiteRT-LM directory not found. Please run ./setup first.")
+            sys.exit(1)
+
+        if not self.bazelisk.exists():
+            print("✗ Error: Bazelisk not found. Please run ./setup first.")
+            sys.exit(1)
+
+        binary_path = self.litert_lm_dir / "bazel-bin" / "runtime" / "engine" / "litert_lm_advanced_main"
+
+        # Check if binary already exists
+        if binary_path.exists():
+            print("✓ Binary already built")
+            return binary_path
+
+        print("Building LiteRT-LM binary (this may take a while)...")
+        try:
+            subprocess.run(
+                [str(self.bazelisk), "build", "runtime/engine:litert_lm_advanced_main"],
+                cwd=self.litert_lm_dir,
+                check=True
+            )
+            print("✓ Build successful")
+            return binary_path
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Build failed: {e}")
+            sys.exit(1)
+
+    def is_preconverted_model(self, model_name):
+        """Check if this is a pre-converted model from litert-community."""
+        return model_name.startswith("litert-community/")
+
+    def is_convertible_model(self, model_name):
+        """Check if this model can be converted from HuggingFace."""
+        # Pre-converted models are not convertible
+        if self.is_preconverted_model(model_name):
+            return False
+
+        # Check for Qwen3 models
+        if "Qwen3" in model_name or "qwen3" in model_name.lower():
+            if any(size in model_name for size in ["0.6B", "1.7B", "4B"]):
+                return True
+
+        # Check for Gemma3 models
+        if "gemma-3" in model_name.lower() or "gemma3" in model_name.lower():
+            if any(size in model_name.lower() for size in ["270m", "1b"]):
+                return True
+
+        return False
+
+    def get_model_file_path(self, model_name):
+        """Get the expected path for the model's .litertlm file."""
+        model_path = self.models_dir / model_name
+
+        # Handle special filename mappings
+        if model_name == "litert-community/gemma-3-270m-it":
+            model_filename = "gemma3-270m-it-q8.litertlm"
+        else:
+            model_filename = f"{model_name.split('/')[-1]}.litertlm"
+
+        return model_path / model_filename
+
+    def run_model(self, model_name):
+        """Run the model with user input."""
+        # Check if model file exists
+        model_file = self.get_model_file_path(model_name)
+
+        if not model_file.exists():
+            # For pre-converted models, try to download
+            if self.is_preconverted_model(model_name):
+                print(f"Model not found locally. Downloading from HuggingFace...")
+                model_file = self.download_model(model_name)
+
+            # For convertible models, auto-convert
+            elif self.is_convertible_model(model_name):
+                print(f"Model not found locally. Converting from HuggingFace...")
+                print(f"This will download ~1-2GB and take several minutes.\n")
+
+                # Trigger conversion with default parameters
+                self.convert_model(
+                    model_name=model_name,
+                    output_dir=None,
+                    quantize="dynamic_int8",
+                    prefill_seq_len=256,
+                    kv_cache_max_len=1280
+                )
+
+                # Check if conversion succeeded
+                if not model_file.exists():
+                    print(f"✗ Error: Conversion completed but model file not found at {model_file}")
+                    sys.exit(1)
+
+            else:
+                print(f"✗ Error: Unsupported model: {model_name}")
+                print("\nSupported models:")
+                print("  Pre-converted:")
+                print("    - litert-community/Qwen3-0.6B")
+                print("    - litert-community/gemma-3-270m-it")
+                print("  Convertible:")
+                print("    - Qwen/Qwen3-0.6B, Qwen/Qwen3-1.7B, Qwen/Qwen3-4B")
+                print("    - google/gemma-3-270m, google/gemma-3-1b")
+                sys.exit(1)
+        else:
+            print(f"✓ Model already exists at {model_file}")
+
+        # Build binary
+        binary_path = self.build_litert_lm()
+
+        # Get user input
+        print("\nEnter your prompt:")
+        input_prompt = input("> ")
+
+        if not input_prompt.strip():
+            print("✗ Error: Empty prompt")
+            sys.exit(1)
+
+        # Run the binary
+        print("\nRunning inference...\n")
+        try:
+            subprocess.run(
+                [
+                    str(binary_path),
+                    "--model_path", str(model_file),
+                    "--input_prompt", input_prompt,
+                    "--backend", "cpu"
+                ],
+                check=True
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"\n✗ Inference failed: {e}")
+            sys.exit(1)
+        except KeyboardInterrupt:
+            print("\n\nInterrupted by user")
+            sys.exit(0)
+
+    def convert_model(self, model_name: str, output_dir=None, quantize="dynamic_int8",
+                      prefill_seq_len=256, kv_cache_max_len=1024):
+        """Convert a model to LiteRT-LM format"""
+
+        # Detect model type and size
+        if "Qwen3" in model_name or "qwen3" in model_name.lower():
+            from converter.qwen3_converter import Qwen3Converter
+
+            # Extract model size (0.6B -> 0.6b)
+            if "0.6B" in model_name:
+                model_size = "0.6b"
+            elif "1.7B" in model_name:
+                model_size = "1.7b"
+            elif "4B" in model_name:
+                model_size = "4b"
+            else:
+                print("✗ Error: Cannot determine model size from name")
+                print("Supported: Qwen/Qwen3-0.6B, Qwen/Qwen3-1.7B, Qwen/Qwen3-4B")
+                sys.exit(1)
+
+            converter = Qwen3Converter(model_name, self.script_dir, model_size)
+
+        elif "gemma-3" in model_name.lower() or "gemma3" in model_name.lower():
+            from converter.gemma3_converter import Gemma3Converter
+
+            # Extract model size
+            if "270m" in model_name.lower():
+                model_size = "270m"
+            elif "1b" in model_name.lower():
+                model_size = "1b"
+            else:
+                print("✗ Error: Cannot determine model size from name")
+                print("Supported: google/gemma-3-270m, google/gemma-3-1b")
+                sys.exit(1)
+
+            converter = Gemma3Converter(model_name, self.script_dir, model_size)
+
+        else:
+            print(f"✗ Error: Unsupported model: {model_name}")
+            print("Currently supported:")
+            print("  - Qwen/Qwen3-0.6B, Qwen/Qwen3-1.7B, Qwen/Qwen3-4B")
+            print("  - google/gemma-3-270m, google/gemma-3-1b")
+            sys.exit(1)
+
+        # Execute conversion
+        try:
+            output_path = Path(output_dir) if output_dir else None
+            converter.convert(
+                quantize=quantize,
+                prefill_seq_len=prefill_seq_len,
+                kv_cache_max_len=kv_cache_max_len,
+                output_dir=output_path
+            )
+        except Exception as e:
+            print(f"\n✗ Conversion failed: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="CLI to use Google AI Edge stack for LLMs",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Run command
+    run_parser = subparsers.add_parser("run", help="Run inference with a model")
+    run_parser.add_argument("model", help="Model name (e.g., litert-community/Qwen3-0.6B, litert-community/gemma-3-270m-it)")
+
+    # Convert command
+    convert_parser = subparsers.add_parser("convert", help="Convert a model to LiteRT-LM format")
+    convert_parser.add_argument("model", help="Model name (e.g., Qwen/Qwen3-0.6B, google/gemma-3-270m)")
+    convert_parser.add_argument("--output-dir", help="Custom output directory (optional)")
+    convert_parser.add_argument("--quantize", default="dynamic_int8",
+                              help="Quantization type (default: dynamic_int8)")
+    convert_parser.add_argument("--prefill-seq-len", type=int, default=256,
+                              help="Prefill sequence length (default: 256, will use multiple values)")
+    convert_parser.add_argument("--kv-cache-max-len", type=int, default=1280,
+                              help="KV cache max length (default: 1280)")
+
+    args = parser.parse_args()
+
+    if args.command == "run":
+        cli = LiteRTLMCLI()
+        cli.run_model(args.model)
+    elif args.command == "convert":
+        cli = LiteRTLMCLI()
+        cli.convert_model(
+            args.model,
+            output_dir=args.output_dir,
+            quantize=args.quantize,
+            prefill_seq_len=args.prefill_seq_len,
+            kv_cache_max_len=args.kv_cache_max_len
+        )
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

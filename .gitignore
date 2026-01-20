@@ -1,0 +1,6 @@
+venv
+LiteRT-LM
+bazelisk
+models
+*pycache*
+*.swp

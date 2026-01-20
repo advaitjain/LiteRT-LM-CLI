@@ -1,0 +1,12 @@
+# Base LLM metadata for Qwen3 models
+# This sets the sampler parameters to match litert-community reference model
+
+sampler_params {
+  type: TOP_P
+  k: 20
+  p: 0.95
+  temperature: 0.6
+  seed: 0
+}
+
+max_num_tokens: 4096

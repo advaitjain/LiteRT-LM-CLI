@@ -1,0 +1,101 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+echo "=== LiteRT-LM-CLI Setup ==="
+echo
+
+# Step 1: Create Python virtual environment
+echo "Step 1/4: Creating Python virtual environment..."
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+    echo "✓ Virtual environment created"
+else
+    echo "✓ Virtual environment already exists"
+fi
+echo
+
+# Step 2: Install Python packages
+echo "Step 2/4: Installing Python packages..."
+source venv/bin/activate
+pip install --upgrade pip > /dev/null 2>&1
+pip install --index-url https://pypi.org/simple/ ai-edge-torch-nightly ai-edge-litert-nightly huggingface_hub
+echo "✓ Python packages installed"
+echo
+
+# Step 3: Clone LiteRT-LM repository
+echo "Step 3/4: Cloning LiteRT-LM repository..."
+if [ ! -d "LiteRT-LM" ]; then
+    git clone https://github.com/google-ai-edge/LiteRT-LM.git
+    cd LiteRT-LM
+    # Get the latest release tag
+    LATEST_RELEASE=$(git describe --tags --abbrev=0 2>/dev/null || echo "main")
+    if [ "$LATEST_RELEASE" != "main" ]; then
+        echo "Checking out latest release: $LATEST_RELEASE"
+        git checkout "$LATEST_RELEASE"
+    else
+        echo "No releases found, using main branch"
+    fi
+    cd ..
+    echo "✓ LiteRT-LM repository cloned"
+else
+    echo "✓ LiteRT-LM repository already exists"
+fi
+echo
+
+# Step 4: Download and configure Bazelisk
+echo "Step 4/4: Setting up Bazelisk..."
+if [ ! -f "bazelisk" ]; then
+    OS=$(uname -s)
+    ARCH=$(uname -m)
+
+    case "$OS" in
+        Linux)
+            BAZELISK_OS="linux"
+            ;;
+        Darwin)
+            BAZELISK_OS="darwin"
+            ;;
+        *)
+            echo "Unsupported OS: $OS"
+            exit 1
+            ;;
+    esac
+
+    case "$ARCH" in
+        x86_64)
+            BAZELISK_ARCH="amd64"
+            ;;
+        aarch64|arm64)
+            BAZELISK_ARCH="arm64"
+            ;;
+        *)
+            echo "Unsupported architecture: $ARCH"
+            exit 1
+            ;;
+    esac
+
+    BAZELISK_VERSION="v1.22.0"
+    BAZELISK_URL="https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-${BAZELISK_OS}-${BAZELISK_ARCH}"
+
+    echo "Downloading Bazelisk from $BAZELISK_URL"
+    curl -L -o bazelisk "$BAZELISK_URL"
+    chmod +x bazelisk
+    echo "✓ Bazelisk installed"
+else
+    echo "✓ Bazelisk already exists"
+fi
+echo
+
+# Create models directory
+mkdir -p models
+
+echo "=== Setup Complete ==="
+echo
+echo "You can now use the litert-lm-cli tool:"
+echo "  ./litert-lm-cli -h"
+echo "  ./litert-lm-cli run litert-community/Qwen3-0.6B"
+echo

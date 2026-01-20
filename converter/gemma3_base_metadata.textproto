@@ -1,0 +1,24 @@
+# Base LLM metadata for Gemma3 models
+# Default sampler parameters for Gemma3
+# Based on working litert-community/gemma-3-270m-it model
+
+start_token {
+  token_ids {
+    ids: 2
+  }
+}
+
+llm_model_type {
+  gemma3 {
+  }
+}
+
+sampler_params {
+  type: TOP_P
+  k: 1
+  p: 0.95
+  temperature: 1.0
+  seed: 0
+}
+
+max_num_tokens: 4096
