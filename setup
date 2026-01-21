@@ -46,11 +46,60 @@ else
 fi
 echo
 
+# Step 3.5: Detect and configure Clang
+echo "Configuring Clang..."
+if [ -d "LiteRT-LM" ]; then
+    CLANG_BINARY="clang"
+    if ! command -v clang &> /dev/null; then
+        # Check for clang-15 to clang-20
+        # Check in reverse order to prefer newer versions
+        for ver in {20..15}; do
+            if command -v "clang-$ver" &> /dev/null; then
+                CLANG_BINARY="clang-$ver"
+                break
+            fi
+        done
+    fi
+
+    if command -v "$CLANG_BINARY" &> /dev/null; then
+        echo "Found clang: $CLANG_BINARY"
+        CXX_BINARY="${CLANG_BINARY/clang/clang++}"
+        
+        CC_PATH=$(command -v "$CLANG_BINARY")
+        
+        # Verify CXX exists
+        if command -v "$CXX_BINARY" &> /dev/null; then
+            CXX_PATH=$(command -v "$CXX_BINARY")
+        else
+            echo "Warning: $CXX_BINARY not found. Using $CLANG_BINARY as CXX."
+            CXX_PATH="$CC_PATH"
+        fi
+
+        echo "Setting CC=$CC_PATH"
+        echo "Setting CXX=$CXX_PATH"
+        
+        # Write to .bazelrc.user
+        cat > LiteRT-LM/.bazelrc.user <<EOF
+build:linux --action_env=CC=$CC_PATH
+build:linux --action_env=CXX=$CXX_PATH
+build:android --action_env=CC=$CC_PATH
+build:android --action_env=CXX=$CXX_PATH
+EOF
+        echo "✓ Configured LiteRT-LM to use $CLANG_BINARY"
+    else
+        echo "WARNING: Clang not found. Please install clang (or clang-15+)."
+    fi
+else
+    echo "WARNING: LiteRT-LM directory not found, skipping Clang configuration."
+fi
+echo
+
 # Step 4: Download and configure Bazelisk
 echo "Step 4/4: Setting up Bazelisk..."
 if [ ! -f "bazelisk" ]; then
     OS=$(uname -s)
     ARCH=$(uname -m)
+
 
     case "$OS" in
         Linux)
@@ -88,6 +137,45 @@ if [ ! -f "bazelisk" ]; then
 else
     echo "✓ Bazelisk already exists"
 fi
+echo
+
+# Step 5: Setup Android NDK
+echo "Step 5/5: Setting up Android NDK..."
+NDK_VERSION="r26d"
+NDK_DIR_NAME="android-ndk-${NDK_VERSION}"
+NDK_INSTALL_PATH="$SCRIPT_DIR/$NDK_DIR_NAME"
+
+if [ ! -d "$NDK_INSTALL_PATH" ]; then
+    echo "Downloading Android NDK ${NDK_VERSION}..."
+    NDK_URL="https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+    
+    if curl -L -o "ndk.zip" "$NDK_URL"; then
+        echo "Extracting NDK..."
+        unzip -q ndk.zip
+        rm ndk.zip
+        echo "✓ Android NDK installed at $NDK_INSTALL_PATH"
+    else
+        echo "✗ Failed to download Android NDK"
+        exit 1
+    fi
+else
+    echo "✓ Android NDK already installed at $NDK_INSTALL_PATH"
+fi
+
+# Configure venv/bin/activate to set ANDROID_NDK_HOME
+ACTIVATE_SCRIPT="$SCRIPT_DIR/venv/bin/activate"
+if [ -f "$ACTIVATE_SCRIPT" ]; then
+    # logical OR to prevent multiple appends
+    if ! grep -q "ANDROID_NDK_HOME" "$ACTIVATE_SCRIPT"; then
+        echo "" >> "$ACTIVATE_SCRIPT"
+        echo "# Android NDK Home" >> "$ACTIVATE_SCRIPT"
+        echo "export ANDROID_NDK_HOME=\"$NDK_INSTALL_PATH\"" >> "$ACTIVATE_SCRIPT"
+        echo "✓ Added ANDROID_NDK_HOME to venv activation script"
+    else
+        echo "✓ ANDROID_NDK_HOME already configured in venv"
+    fi
+fi
+
 echo
 
 # Create models directory

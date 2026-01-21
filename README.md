@@ -26,6 +26,7 @@ This will:
 2. Install `ai-edge-torch-nightly` and `ai-edge-litert-nightly`
 3. Clone the LiteRT-LM repository and checkout the latest release
 4. Download and configure Bazelisk
+5. Download/setup Android NDK (if not present) and configure `ANDROID_NDK_HOME`
 
 ## Usage
 
@@ -41,7 +42,7 @@ source venv/bin/activate
 ./litert-lm-cli -h
 ```
 
-### Run a Model
+### Run a Model (Host)
 
 Pre-converted models:
 ```bash
@@ -63,6 +64,26 @@ This will:
 3. Build the LiteRT-LM binary (if not already built)
 4. Prompt you for input
 5. Run inference and display the results
+
+### Run a Model (Android)
+
+Run inference on a locally connected Android device:
+
+```bash
+./litert-lm-cli run litert-community/Qwen3-0.6B --android
+```
+
+This interactive workflow will:
+1. List and select a connected ADB device
+2. Cross-compile the LiteRT-LM binary for Android (arm64)
+3. Push the binary and model file to `/data/local/tmp/` on the device
+4. Ask for your input prompt
+5. Run inference on the device via `adb shell`
+
+**Prerequisites:**
+- Android Device connected via USB
+- USB Debugging enabled
+- `adb` installed (`sudo apt install android-tools-adb` or part of Android SDK Platform-Tools)
 
 ### Convert a Model
 
@@ -91,6 +112,8 @@ LiteRT-LM-CLI/
 - Git
 - curl
 - Linux or macOS
+- Android NDK (installed automatically by setup)
+- Android SDK Platform-Tools (adb) (for Android inference)
 
 All dependencies are installed within the LiteRT-LM-CLI directory and do not interfere with the system.
 

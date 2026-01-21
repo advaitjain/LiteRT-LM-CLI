@@ -4,3 +4,4 @@ bazelisk
 models
 *pycache*
 *.swp
+android-ndk-*

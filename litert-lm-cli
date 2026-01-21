@@ -106,7 +106,7 @@ class LiteRTLMCLI:
             print(f"\n✗ Error downloading model: {e}")
             sys.exit(1)
 
-    def build_litert_lm(self):
+    def build_litert_lm(self, android=False):
         """Build the LiteRT-LM binary using Bazel."""
         if not self.litert_lm_dir.exists():
             print("✗ Error: LiteRT-LM directory not found. Please run ./setup first.")
@@ -116,6 +116,13 @@ class LiteRTLMCLI:
             print("✗ Error: Bazelisk not found. Please run ./setup first.")
             sys.exit(1)
 
+        if android:
+            return self._build_android()
+        else:
+            return self._build_host()
+
+    def _build_host(self):
+        """Build for host (Linux/Mac)."""
         binary_path = self.litert_lm_dir / "bazel-bin" / "runtime" / "engine" / "litert_lm_advanced_main"
 
         # Check if binary already exists
@@ -134,6 +141,62 @@ class LiteRTLMCLI:
             return binary_path
         except subprocess.CalledProcessError as e:
             print(f"✗ Build failed: {e}")
+            sys.exit(1)
+
+    def _build_android(self):
+        """Build for Android."""
+        # Check for ANDROID_NDK_HOME
+        if not os.environ.get("ANDROID_NDK_HOME"):
+            print("✗ Error: ANDROID_NDK_HOME environment variable not set.")
+            print("Please set it to your Android NDK path.")
+            sys.exit(1)
+
+        output_base = Path.home() / ".cache" / "bazel_android_out"
+        print(f"Building for Android (arm64)...")
+        print(f"Using output base: {output_base}")
+
+        try:
+            # Build command
+            subprocess.run(
+                [
+                    str(self.bazelisk),
+                    f"--output_base={output_base}",
+                    "build",
+                    "--config=android_arm64",
+                    "//runtime/engine:litert_lm_advanced_main"
+                ],
+                cwd=self.litert_lm_dir,
+                check=True
+            )
+            
+            # Find artifact path
+            # We can use 'bazel info' with the same flags to find the actual bazel-bin
+            result = subprocess.run(
+                [
+                    str(self.bazelisk),
+                    f"--output_base={output_base}",
+                    "info",
+                    "--config=android_arm64",
+                    "bazel-bin"
+                ],
+                cwd=self.litert_lm_dir,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            bazel_bin_dir = Path(result.stdout.strip())
+            android_binary = bazel_bin_dir / "runtime" / "engine" / "litert_lm_advanced_main"
+            
+            if android_binary.exists():
+                print("✓ Android build successful")
+                return android_binary
+            else:
+                print(f"✗ Build succeeded but binary not found at expected path: {android_binary}")
+                sys.exit(1)
+
+        except subprocess.CalledProcessError as e:
+            print(f"✗ Android build failed: {e}")
             sys.exit(1)
 
     def is_preconverted_model(self, model_name):
@@ -170,7 +233,7 @@ class LiteRTLMCLI:
 
         return model_path / model_filename
 
-    def run_model(self, model_name):
+    def run_model(self, model_name, android=False):
         """Run the model with user input."""
         # Check if model file exists
         model_file = self.get_model_file_path(model_name)
@@ -214,7 +277,11 @@ class LiteRTLMCLI:
             print(f"✓ Model already exists at {model_file}")
 
         # Build binary
-        binary_path = self.build_litert_lm()
+        binary_path = self.build_litert_lm(android=android)
+
+        if android:
+            self._run_android_inference(binary_path, model_file)
+            return
 
         # Get user input
         print("\nEnter your prompt:")
@@ -242,6 +309,125 @@ class LiteRTLMCLI:
         except KeyboardInterrupt:
             print("\n\nInterrupted by user")
             sys.exit(0)
+
+    def _get_adb_devices(self):
+        """Get list of connected ADB devices."""
+        try:
+            result = subprocess.run(["adb", "devices"], capture_output=True, text=True, check=True)
+            lines = result.stdout.strip().split("\n")[1:] # Skip header
+            devices = []
+            for line in lines:
+                if line.strip():
+                    parts = line.split("\t")
+                    if len(parts) >= 2 and parts[1] == "device":
+                        devices.append(parts[0])
+            return devices
+        except FileNotFoundError:
+            print("✗ Error: 'adb' command not found. Please install Android Platform Tools.")
+            sys.exit(1)
+
+    def _run_android_inference(self, binary_path, model_path):
+        """Push artifacts and run inference on Android device."""
+        
+        # 1. Select Device
+        devices = self._get_adb_devices()
+        if not devices:
+            print("✗ Error: No Android devices found via adb.")
+            print("Please connect a device and enable USB Debugging.")
+            sys.exit(1)
+            
+        if len(devices) == 1:
+            device_serial = devices[0]
+            print(f"Using device: {device_serial}")
+        else:
+            print("\nMultiple devices found:")
+            for i, dev in enumerate(devices):
+                print(f"  {i+1}) {dev}")
+            
+            while True:
+                try:
+                    selection = input("\nSelect device number: ")
+                    idx = int(selection) - 1
+                    if 0 <= idx < len(devices):
+                        device_serial = devices[idx]
+                        break
+                    print("Invalid selection.")
+                except ValueError:
+                    print("Invalid input.")
+
+        # 2. Push Binary
+        target_bin_path = "/data/local/tmp/litert_lm_advanced_main"
+        print(f"\nPushing binary to {target_bin_path}...")
+        try:
+            subprocess.run(["adb", "-s", device_serial, "push", str(binary_path), target_bin_path], check=True)
+            subprocess.run(["adb", "-s", device_serial, "shell", f"chmod +x {target_bin_path}"], check=True)
+        except subprocess.CalledProcessError:
+            print("✗ Error pushing binary.")
+            sys.exit(1)
+
+        # 3. Push Model
+        model_filename = model_path.name
+        target_model_path = f"/data/local/tmp/{model_filename}"
+        
+        # Check if model exists and compare size (simple optimization)
+        needs_push = True
+        try:
+            # Get remote size
+            res = subprocess.run(
+                ["adb", "-s", device_serial, "shell", f"ls -l {target_model_path}"],
+                capture_output=True, text=True
+            )
+            if res.returncode == 0:
+                # Basic check: if file exists, ask user? or just overwrite? 
+                # For large models, checking size matches local might be good enough to skip
+                # Parsing 'ls -l' output can be brittle across android versions/shells (toybox etc)
+                # Let's just assume if it exists we might want to skip or ask. 
+                # Using 'adb shell stat -c %s' is better but not always available.
+                # Let's simple ask user if they want to skip if file exists, or just push.
+                # User asked to "push the desired file", implying ensure it's there.
+                # I'll implement a simple check: "File exists. Overwrite? [y/N]"
+                print(f"\nModel file {model_filename} already exists on device.")
+                should_push = input("Push again? (y/N): ").lower().startswith('y')
+                if not should_push:
+                    needs_push = False
+        except:
+            pass # File likely doesn't exist
+
+        if needs_push:
+            print(f"Pushing model to {target_model_path} (this may take time)...")
+            try:
+                subprocess.run(["adb", "-s", device_serial, "push", str(model_path), target_model_path], check=True)
+            except subprocess.CalledProcessError:
+                print("✗ Error pushing model.")
+                sys.exit(1)
+        else:
+            print("Skipping model push.")
+
+        # 4. Get Prompt
+        print("\nEnter your prompt:")
+        input_prompt = input("> ")
+        if not input_prompt.strip():
+            print("✗ Error: Empty prompt")
+            sys.exit(1)
+
+        # 5. Run Inference
+        print("\nRunning inference on Android (benchmark mode)...")
+        print("="*50)
+        cmd = [
+            "adb", "-s", device_serial, "shell",
+            f"{target_bin_path} --backend=cpu --model_path={target_model_path} --input_prompt=\"{input_prompt}\" --benchmark"
+        ]
+        
+        try:
+            # Use subprocess.call so output streams directly to terminal
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"\n✗ Inference failed on device: {e}")
+            sys.exit(1)
+        except KeyboardInterrupt:
+            print("\nInterrupted.")
+            sys.exit(0)
+
 
     def convert_model(self, model_name: str, output_dir=None, quantize="dynamic_int8",
                       prefill_seq_len=256, kv_cache_max_len=1024):
@@ -314,6 +500,7 @@ def main():
     # Run command
     run_parser = subparsers.add_parser("run", help="Run inference with a model")
     run_parser.add_argument("model", help="Model name (e.g., litert-community/Qwen3-0.6B, litert-community/gemma-3-270m-it)")
+    run_parser.add_argument("--android", action="store_true", help="Build for Android and output binary location")
 
     # Convert command
     convert_parser = subparsers.add_parser("convert", help="Convert a model to LiteRT-LM format")
@@ -330,7 +517,7 @@ def main():
 
     if args.command == "run":
         cli = LiteRTLMCLI()
-        cli.run_model(args.model)
+        cli.run_model(args.model, android=args.android)
     elif args.command == "convert":
         cli = LiteRTLMCLI()
         cli.convert_model(
