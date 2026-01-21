@@ -1,6 +1,7 @@
 """HuggingFace model download utilities"""
 
 import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 from huggingface_hub import hf_hub_download
@@ -55,17 +56,27 @@ def download_model_files(
             print(f"✗ Failed")
             error_msg = str(e)
 
-            # Check for gated repo error
-            if "gated repo" in error_msg.lower() or "access to model" in error_msg.lower():
-                raise Exception(
-                    f"\n✗ Cannot access gated model {repo_id}.\n"
-                    f"\nThis model requires accepting a license agreement.\n"
-                    f"Please:\n"
-                    f"  1. Visit: https://huggingface.co/{repo_id}\n"
-                    f"  2. Click 'Agree and access repository'\n"
-                    f"  3. Wait a few minutes for access to be granted\n"
-                    f"  4. Try the conversion again\n"
-                ) from e
+            # Check for common auth errors
+            is_auth_error = "401" in error_msg or "403" in error_msg or "gated repo" in error_msg.lower() or "access to model" in error_msg.lower()
+            
+            if is_auth_error:
+                print(f"\n✗ Error: Authentication failed for {repo_id}")
+                print(f"  This model is likely gated or requires authentication.\n")
+                print("  Please authenticate with HuggingFace:")
+                print("  1. Run: hf login")
+                print("  2. Enter your HuggingFace token (get it from https://huggingface.co/settings/tokens)")
+                print("\n  If you've already logged in, ensure your token has access to this model.")
+                print(f"  For gated models like {repo_id}, you also need to:")
+                print(f"  - Visit https://huggingface.co/{repo_id}")
+                print("  - Click 'Agree and access repository'")
+                print("  - Wait a few minutes for access to be granted\n")
+                
+                # Check if we have a token but it might be invalid
+                if token:
+                    print("  Note: A token was found properly, but access was still denied.")
+                    print("  Please check that your token has the 'read' permission.")
+                
+                sys.exit(1)
             else:
                 raise Exception(f"Failed to download {filename}: {e}") from e
 
@@ -101,8 +112,9 @@ def get_hf_token() -> Optional[str]:
 
     Checks in order:
     1. HF_TOKEN environment variable
-    2. HF_TOKEN file in current directory
-    3. HF_TOKEN file in parent directory
+    2. ~/.cache/huggingface/token (standard huggingface-cli login location)
+    3. HF_TOKEN file in current directory
+    4. HF_TOKEN file in parent directory
 
     Returns:
         Token string if found, None otherwise
@@ -111,6 +123,14 @@ def get_hf_token() -> Optional[str]:
     token = os.environ.get("HF_TOKEN")
     if token:
         return token
+
+    # Check standard huggingface-cli cache location
+    token_path = Path.home() / '.cache' / 'huggingface' / 'token'
+    if token_path.exists():
+        try:
+            return token_path.read_text().strip()
+        except Exception:
+            pass
 
     # Check for HF_TOKEN file in current directory
     token_file = Path("HF_TOKEN")

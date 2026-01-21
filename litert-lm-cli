@@ -90,7 +90,7 @@ class LiteRTLMCLI:
             if e.code == 401:
                 print(f"\n✗ Error: Unauthorized (401). This model requires authentication.")
                 print("\nPlease authenticate with HuggingFace:")
-                print("  1. Run: huggingface-cli login")
+                print("  1. Run: hf login")
                 print("  2. Enter your HuggingFace token (get it from https://huggingface.co/settings/tokens)")
                 print("\nIf you've already logged in, your token should be automatically detected.")
                 print("Alternatively, set the environment variable:")
