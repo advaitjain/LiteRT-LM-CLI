@@ -123,21 +123,28 @@ class LiteRTLMCLI:
 
     def _build_host(self):
         """Build for host (Linux/Mac)."""
-        binary_path = self.litert_lm_dir / "bazel-bin" / "runtime" / "engine" / "litert_lm_advanced_main"
+        # Use linux-bin for Linux builds
+        # Note: If we are on Mac, we might need different handling if we want to separate it too.
+        binary_path = self.litert_lm_dir / "linux-bin" / "runtime" / "engine" / "litert_lm_advanced_main"
 
         # Check if binary already exists
         if binary_path.exists():
             print("✓ Binary already built")
             return binary_path
 
-        print("Building LiteRT-LM binary (this may take a while)...")
+        print("Building LiteRT-LM binary for host...")
         try:
             subprocess.run(
-                [str(self.bazelisk), "build", "runtime/engine:litert_lm_advanced_main"],
+                [str(self.bazelisk), "build", "//runtime/engine:litert_lm_advanced_main"],
                 cwd=self.litert_lm_dir,
                 check=True
             )
             print("✓ Build successful")
+            
+            if not binary_path.exists():
+                print(f"✗ Error: Binary correctly built but not found at {binary_path}")
+                sys.exit(1)
+                 
             return binary_path
         except subprocess.CalledProcessError as e:
             print(f"✗ Build failed: {e}")
@@ -153,10 +160,8 @@ class LiteRTLMCLI:
 
         output_base = Path.home() / ".cache" / "bazel_android_out"
         print(f"Building for Android (arm64)...")
-        print(f"Using output base: {output_base}")
 
         try:
-            # Build command
             subprocess.run(
                 [
                     str(self.bazelisk),
@@ -169,24 +174,7 @@ class LiteRTLMCLI:
                 check=True
             )
             
-            # Find artifact path
-            # We can use 'bazel info' with the same flags to find the actual bazel-bin
-            result = subprocess.run(
-                [
-                    str(self.bazelisk),
-                    f"--output_base={output_base}",
-                    "info",
-                    "--config=android_arm64",
-                    "bazel-bin"
-                ],
-                cwd=self.litert_lm_dir,
-                check=True,
-                capture_output=True,
-                text=True
-            )
-            
-            bazel_bin_dir = Path(result.stdout.strip())
-            android_binary = bazel_bin_dir / "runtime" / "engine" / "litert_lm_advanced_main"
+            android_binary = self.litert_lm_dir / "android-bin" / "runtime" / "engine" / "litert_lm_advanced_main"
             
             if android_binary.exists():
                 print("✓ Android build successful")

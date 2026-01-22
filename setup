@@ -94,6 +94,25 @@ else
 fi
 echo
 
+# Step 3.6: Configure Bazel build artifacts location
+echo "Configuring Bazel build artifacts..."
+BAZELRC="LiteRT-LM/.bazelrc"
+if [ -f "$BAZELRC" ]; then
+    # logical OR to prevent multiple appends
+    if ! grep -q "symlink_prefix=android-" "$BAZELRC"; then
+        echo "" >> "$BAZELRC"
+        echo "# Symlink prefixes to separate build artifacts" >> "$BAZELRC"
+        echo "build:android --symlink_prefix=android-" >> "$BAZELRC"
+        echo "build:linux --symlink_prefix=linux-" >> "$BAZELRC"
+        echo "✓ Added symlink prefixes to .bazelrc"
+    else
+        echo "✓ Symlink prefixes already configured in .bazelrc"
+    fi
+else
+    echo "WARNING: $BAZELRC not found, skipping artifact configuration."
+fi
+echo
+
 # Step 4: Download and configure Bazelisk
 echo "Step 4/4: Setting up Bazelisk..."
 if [ ! -f "bazelisk" ]; then
